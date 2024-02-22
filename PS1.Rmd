@@ -1,0 +1,79 @@
+
+
+
+Problem A:
+```{r}
+library(numDeriv)
+
+# Gradient Descent Function
+gradientDescent <- function(f, starting_value, max_iter, gamma = 0.01) {
+  current_value <- starting_value
+  history <- numeric(max_iter) # To store function values for plotting
+  
+  for (i in 1:max_iter) {
+    grad <- grad(f, current_value) # Compute the gradient at current value
+    current_value <- current_value - gamma * grad # Update the current value
+    history[i] <- f(current_value) # Store function value after update for plotting
+
+    # Optional: Implement convergence criteria to break the loop early
+    # if (norm(grad, type="2") < tolerance) {
+    #    break
+    # }
+  }
+  
+  list(minimizer=current_value, history=history)
+}
+
+# Test functions
+# Define the test function as per the formula given
+test_function <- function(v) {
+  x <- v[1]
+  y <- v[2]
+term1 <- (1 + (x + y + 1)^2 * (19 - 14*x + 3*x^2 - 14*y + 6*x*y + 3*y^2))
+ term2 <- (30 + (2*x - 3*y)^2 * (18 - 32*x + 12*x^2 + 48*y - 36*x*y + 27*y^2))
+  
+  f_value <- term1 * term2
+  return(f_value)
+}
+
+starting_value <- c(0, 0) # Starting at the origin
+max_iter <- 10000 # Maximal number of iterations
+gamma <- 0.0001 # Learning rate, might need adjustment based on the function characteristics
+
+result <- gradientDescent(test_function, starting_value, max_iter, gamma)
+
+print(paste("Approximate minimizer found at x =", result$minimizer[1], "y =", result$minimizer[2]))
+
+# Plotting the path of function values
+plot(result$history, type='l', main="Function Value Over Iterations", xlab="Iteration", ylab="Function Value",
+     col="blue")
+```
+
+
+   
+```
+
+
+```{r}
+starting_value <- c(0, 0) # Starting at the origin
+max_iter <- 1000 # Maximal number of iterations
+gamma <- 0.001 # Learning rate, might need adjustment based on the function characteristics
+
+result <- gradientDescent(test_function, starting_value, max_iter, gamma)
+
+print(paste("Approximate minimizer found at x =", result$minimizer[1], "y =", result$minimizer[2]))
+
+# Plotting the path of function values
+plot(result$history, type='l', main="Function Value Over Iterations", xlab="Iteration", ylab="Function Value",
+     col="blue")
+
+
+
+
+```
+
+```{r}
+test_function(c(0,-1))
+```
+
+
