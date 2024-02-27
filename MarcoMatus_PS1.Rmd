@@ -1,5 +1,6 @@
 Created by: 
-
+Marco Hafid - 22-620-546
+Matus Kubla - 23-604-382
 
 Importing the libraries
 ```{r}
