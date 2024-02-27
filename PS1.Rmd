@@ -1,15 +1,14 @@
 Import Packages
 ```{r}
+# Installing the required packages
 library(numDeriv)
 library(glmnet)
-
 ```
 
 
 Problem A:
 ```{r}
-
-# Gradient Descent Function
+# Defining the Gradient Descent function
 gradientDescent <- function(f, starting_value, max_iter, gamma = 0.01) {
   current_value <- starting_value
   history <- numeric(max_iter) # To store function values for plotting
@@ -52,6 +51,8 @@ print(paste("Approximate minimizer found at x =", result$minimizer[1], "y =", re
 plot(result$history, type='l', main="Function Value Over Iterations", xlab="Iteration", ylab="Function Value",
      col="blue")
 ```
+
+
 ```{r}
 library(numDeriv)
 
