@@ -1,3 +1,8 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
 Created by: 
 Marco Hafid - 22-620-546
 Matus Kubla - 23-604-382
@@ -18,7 +23,7 @@ source: https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction/dat
 # Set the working directory and import the dataset
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 heart_failure <- read.csv("heart.csv")
-
+print(heart_failure)
 
 ```
 
