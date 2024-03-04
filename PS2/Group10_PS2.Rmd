@@ -8,28 +8,164 @@ Marco Hafid - 22-620-546
 Matus Kubla - 23-604-382
 
 Describe the dataset and the classification problem:
+We would like to create models that can predict if a person suffered from heart failure or not, for this we are using a dataset with 11 predictor variables (+ the target variable) and 918 observations.
+We will use 4 different classification models -LDA, QDA, Naive Bayes and logistic- and compare their performance.
+
+The initial dataset contains the following variables:
+
+"Age: age of the patient [years]
+Sex: sex of the patient [M: Male, F: Female]
+ChestPainType: chest pain type [TA: Typical Angina, ATA: Atypical Angina, NAP: Non-Anginal Pain, ASY: Asymptomatic]
+RestingBP: resting blood pressure [mm Hg]
+Cholesterol: serum cholesterol [mm/dl]
+FastingBS: fasting blood sugar [1: if FastingBS > 120 mg/dl, 0: otherwise]
+RestingECG: resting electrocardiogram results [Normal: Normal, ST: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV), LVH: showing probable or definite left ventricular hypertrophy by Estes' criteria]
+MaxHR: maximum heart rate achieved [Numeric value between 60 and 202]
+ExerciseAngina: exercise-induced angina [Y: Yes, N: No]
+Oldpeak: oldpeak = ST [Numeric value measured in depression]
+ST_Slope: the slope of the peak exercise ST segment [Up: upsloping, Flat: flat, Down: downsloping]
+HeartDisease: output class [1: heart disease, 0: Normal]"
+(source: https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction/data)
 
 
 
 Importing the libraries
 ```{r}
-
+library(dplyr)
+library(e1071)
+library(caret)
 ```
 
 
-Importing and cleaning the dataset
-source: https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction/data
+
+Importing data
 ```{r}
 # Set the working directory and import the dataset
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 heart_failure <- read.csv("heart.csv")
+# Show a summary of the variables and print the first few rows of the dataframe
+summary(heart_failure)
 print(heart_failure)
-
 ```
 
+There are some issues with the data, such as 172 observations having a cholesterol value of 0(NOTE TO MATUS: correct me if im wrong, not good in biology LOL), which is not possible, these will be removed. Also some of the categorical variables need to be transformed from text to categories.
 
-Feature engineering the data
+The categories were transformed to the following:
+Sex: sex of the patient [M: 0, F: 1]
+ChestPainType: chest pain type [TA: 0, ATA: 1, NAP:2 , ASY: 3]
+ExerciseAngina: exercise-induced angina [Y: 1, N: 0]
+ST_Slope: the slope of the peak exercise ST segment [Up: 0, Flat: 1, Down: 2]
+
+Feature engineering and cleaning the data
+```{r}
+# Remove the observations where the cholesterol level is exactly 0
+heart_failure <- heart_failure[heart_failure$Cholesterol != 0, ]
+
+# Transform the categorical variables from text to numbers
+# Transform 'sex' column
+heart_failure$Sex <- as.numeric(as.character(factor(heart_failure$Sex, levels = c("M", "F"), labels = c(0, 1))))
+
+# Transform 'ChestPainType' column
+chest_pain_mapping <- c("TA" = 0, "ATA" = 1, "NAP" = 2, "ASY" = 3)
+heart_failure$ChestPainType <- as.numeric(as.character(factor(heart_failure$ChestPainType, levels = names(chest_pain_mapping), labels = chest_pain_mapping)))
+
+# Transform 'ExerciseAngina' column
+heart_failure$ExerciseAngina <- as.numeric(as.character(factor(heart_failure$ExerciseAngina, levels = c("N", "Y"), labels = c(0, 1))))
+
+# Transform 'ST_Slope' column
+slope_mapping <- c("Up" = 0, "Flat" = 1, "Down" = 2)
+heart_failure$ST_Slope <- as.numeric(as.character(factor(heart_failure$ST_Slope, levels = names(slope_mapping), labels = slope_mapping)))
+
+```
+Summary and boxplots of the data
 ```{r}
 
 ```
 
+
+
+
+LDA
+```{r}
+
+```
+
+
+QDA
+```{r}
+
+```
+
+
+
+Naive-Bayes -Marco
+```{r}
+# Create a formula to include all variables except the target variable
+formula_all_vars <- as.formula(paste("HeartDisease ~", paste(names(heart_failure)[-which(names(heart_failure) == "HeartDisease")], collapse = "+")))
+
+# Fit the Naive Bayes model using all variables
+fit_NB <- naiveBayes(formula_all_vars, usekernel = TRUE, data = heart_failure)
+
+
+```
+
+```{r}
+actual <- heart_failure$HeartDisease
+
+# Make predictions using the fitted Naive Bayes model
+predicted <- predict(fit_NB, newdata = heart_failure)
+
+# Ensure factor levels are consistent
+actual <- factor(actual, levels = levels(predicted))
+
+# Create confusion matrix
+conf_matrix <- confusionMatrix(predicted, actual)
+
+# Print the confusion matrix
+print(conf_matrix)
+```
+
+```{r}
+# Set a seed for reproducibility
+set.seed(123)
+
+# Assuming 'heart_failure' is your data frame
+# Assuming 'HeartDisease' is the actual target variable in your dataset
+in_train <- createDataPartition(heart_failure$HeartDisease, p = 0.8, list = FALSE)
+
+# Create training and testing sets
+train_data <- heart_failure[in_train, ]
+test_data <- heart_failure[-in_train, ]
+
+# Get unique levels from the complete dataset
+all_levels <- levels(heart_failure$HeartDisease)
+
+# Ensure factor levels are consistent in the training set
+train_data$HeartDisease <- factor(train_data$HeartDisease, levels = all_levels)
+
+# Fit the Naive Bayes model using the training set
+fit_NB <- naiveBayes(formula_all_vars, usekernel = TRUE, data = train_data)
+
+# Make predictions on the testing set
+predicted <- predict(fit_NB, newdata = test_data)
+
+# Ensure factor levels are consistent in the predicted values
+predicted <- factor(predicted, levels = all_levels)
+
+# Create confusion matrix
+conf_matrix <- confusionMatrix(predicted, test_data$HeartDisease)
+
+# Print the confusion matrix
+print(conf_matrix)
+```
+
+
+
+Logistic -Marco
+```{r}
+
+```
+
+
+
+-Conclusion/summary text-
