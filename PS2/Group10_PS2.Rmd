@@ -1,0 +1,30 @@
+Created by: 
+Marco Hafid - 22-620-546
+Matus Kubla - 23-604-382
+
+Describe the dataset and the classification problem:
+
+
+
+Importing the libraries
+```{r}
+
+```
+
+
+Importing and cleaning the dataset
+source: https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction/data
+```{r}
+# Set the working directory and import the dataset
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+heart_failure <- read.csv("heart.csv")
+
+
+```
+
+
+Feature engineering the data
+```{r}
+
+```
+
