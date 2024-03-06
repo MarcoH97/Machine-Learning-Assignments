@@ -9,33 +9,63 @@ Matus Kubla - 23-604-382
 
 Describe the dataset and the classification problem:
 We would like to create models that can predict if a person suffered from heart failure or not, for this we are using a dataset with 11 predictor variables (+ the target variable) and 918 observations.
-We will use 4 different classification models -LDA, QDA, Naive Bayes and logistic- and compare their performance.
+We will use 4 different classification models - Linear Discriminant Analysis (LDA), Quadratic Discriminant Analysis (QDA), Naive Bayes and Logistic Regression- and compare their performance on the following metrics:
+
+- Accuracy: Proportion of correct predictions made overall 
+      Accuracy = number of correct predictions / total number of predictions
+      
+- Precision: Proportion of true positive predictions in the total predicted positives
+      Precision = True positives / (True positives + False positives)
+      
+- Recall (sensitivity): Proportion of actual positives correctly identified by the model
+      Recall = True positives / (True positives + False negatives)
+
+While there is no single perfect metric to assess the performance of a model, the nature of our classification task - predicting heart disease based on health data of patients - makes false negatives (failing to identify heart disease) particularly costlier than say, false positives ("false alarms").
+Clearly then, recall is the most relevant metric in our case, as the primary goal would be to identify as many of the patients with heart disease as possible (even at a cost of a small amount of false alarms), rather than being precise but failing to identify and help impacted patients.
+
 
 The initial dataset contains the following variables:
 
 "Age: age of the patient [years]
+
 Sex: sex of the patient [M: Male, F: Female]
 ChestPainType: chest pain type [TA: Typical Angina, ATA: Atypical Angina, NAP: Non-Anginal Pain, ASY: Asymptomatic]
+
 RestingBP: resting blood pressure [mm Hg]
+
 Cholesterol: serum cholesterol [mm/dl]
+
 FastingBS: fasting blood sugar [1: if FastingBS > 120 mg/dl, 0: otherwise]
+
 RestingECG: resting electrocardiogram results [Normal: Normal, ST: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV), LVH: showing probable or definite left ventricular hypertrophy by Estes' criteria]
+
 MaxHR: maximum heart rate achieved [Numeric value between 60 and 202]
+
 ExerciseAngina: exercise-induced angina [Y: Yes, N: No]
+
 Oldpeak: oldpeak = ST [Numeric value measured in depression]
+
 ST_Slope: the slope of the peak exercise ST segment [Up: upsloping, Flat: flat, Down: downsloping]
+
 HeartDisease: output class [1: heart disease, 0: Normal]"
+
 (source: https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction/data)
 
 
 
 Importing the libraries
-```{r}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(e1071)
 library(corrplot)
 library(randomForest)
+library(pROC)  
+library(ggplot2)
 library(caret)
+library(MASS)
+library(knitr)
+library(kableExtra)
 ```
 
 
@@ -47,17 +77,17 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 heart_failure <- read.csv("heart.csv")
 # Show a summary of the variables and print the first few rows of the dataframe
 summary(heart_failure)
-print(heart_failure)
+#print(heart_failure)
 ```
 
-There are some issues with the data, such as 172 observations having a cholesterol value of 0(NOTE TO MATUS: correct me if im wrong, not good in biology LOL), which is not possible, these will be removed. Also some of the categorical variables need to be transformed from text to categories.
+There are some issues with the data, such as 172 observations having a cholesterol value of 0, which is not possible, these will be removed. Also some of the categorical variables need to be transformed from text to categories.
 
 The categories were transformed to the following:
 Sex: sex of the patient [M: 0, F: 1]
 ChestPainType: chest pain type [TA: 0, ATA: 1, NAP:2 , ASY: 3]
 ExerciseAngina: exercise-induced angina [Y: 1, N: 0]
 ST_Slope: the slope of the peak exercise ST segment [Up: 0, Flat: 1, Down: 2]
-RestingECG: resting electrocardiogram results [Normal: 0, ST: 1, LVH: 2
+RestingECG: resting electrocardiogram results [Normal: 0, ST: 1, LVH: 2]
 
 Feature engineering and cleaning the data
 ```{r}
@@ -76,14 +106,17 @@ resting_ecg_mapping <- c("Normal" = 0, "ST" = 1, "LVH" = 2)
 # Apply transformations to the dataframe
 heart_failure <- heart_failure %>%
   mutate(Sex = factor(Sex, levels = c("M", "F"), labels = c(0, 1))) %>%
-  mutate(ChestPainType = factor(ChestPainType, levels = names(chest_pain_mapping), labels = chest_pain_mapping)) %>%
-  mutate(ExerciseAngina = factor(ExerciseAngina, levels = c("N", "Y"), labels = c(0, 1))) %>%
-  mutate(ST_Slope = factor(ST_Slope, levels = names(slope_mapping), labels = slope_mapping)) %>%
-  mutate(RestingECG = factor(RestingECG, levels = names(resting_ecg_mapping), labels = resting_ecg_mapping))
-
+  mutate(ChestPainType = factor(ChestPainType, levels = names(chest_pain_mapping), 
+                                labels = chest_pain_mapping)) %>%
+  mutate(ExerciseAngina = factor(ExerciseAngina, levels = c("N", "Y"), 
+                                 labels = c(0, 1))) %>%
+  mutate(ST_Slope = factor(ST_Slope, levels = names(slope_mapping), 
+                           labels = slope_mapping)) %>%
+  mutate(RestingECG = factor(RestingECG, levels = names(resting_ecg_mapping), 
+                             labels = resting_ecg_mapping))
 ```
 
-In the following steps we are investigating come characteristics of the variables, such as correlation or their significance in a random forest model to decide which variables to keep or discard for the classification models.
+In the following steps we are investigating some characteristics of the variables, such as correlation or their significance in a random forest model to decide which variables to keep or discard for the classification models.
 
 The correlation matrix shows some relatively strong correlation around 0.6 and -0.6 values, however we set our threshold at an absolute value of 0.8, which was not breached, therefore no variable was removed.
 ```{r}
@@ -99,7 +132,8 @@ corrplot(correlation_matrix, method = "color")
 We created a Random Forest model to determine which variables to keep and which ones to discard. We calculated and plotted the variable importance values, where we decided to discard FastingBS, RestingECG and Sex due to these variables not being too significant. This leaves our final dataset with 8 predictor variables and 746 observations.
 ```{r}
 # Create the Random Forest model
-rf_model <- randomForest(HeartDisease ~ ., data = heart_failure, ntree = 100, mtry=4, type = "classification")
+rf_model <- randomForest(HeartDisease ~ ., data = heart_failure, ntree = 100, mtry=4,
+                         type = "classification")
 
 # Print variable importance
 print("Variable Importance:")
@@ -108,30 +142,26 @@ print(round(importance(rf_model), 2))
 # Plot variable importance
 varImpPlot(rf_model, main = "Variable Importance")
 # Remove the variables not deemed significant by Random Forest
-heart_failure <- heart_failure[, !colnames(heart_failure) %in% c("Sex", "FastingBS", "RestingECG")]
+heart_failure <- heart_failure[, !colnames(heart_failure) %in%
+                                 c("Sex", "FastingBS", "RestingECG")]
 ```
 
 Summary and Print the first 10 rows our final dataset  used for the classification models
 ```{r}
 # Summarise and print the final df
 summary(heart_failure)
-print(head(heart_failure, 10))
+#print(head(heart_failure, 10))
 ```
 
 
 
-Boxplots of the data
-```{r}
 
-```
-
-
-We randomly split the data into a training and test subset with a 80:20 ratio.
+We randomly split the data into a training and test subset with a 75:25 ratio.
 ```{r}
 set.seed(123)
 
 # Generate random indices for splitting
-indices <- sample(seq_len(nrow(heart_failure)), 0.8 * nrow(heart_failure))
+indices <- sample(seq_len(nrow(heart_failure)), 0.75 * nrow(heart_failure))
 
 # Create training and test sets for features (X)
 X_train <- heart_failure[indices, -which(names(heart_failure) == "HeartDisease")]
@@ -140,92 +170,436 @@ X_test <- heart_failure[-indices, -which(names(heart_failure) == "HeartDisease")
 # Create training and test sets for the target variable (Y)
 Y_train <- heart_failure$HeartDisease[indices]
 Y_test <- heart_failure$HeartDisease[-indices]
+
+# Convert Y to factors
+Y_train <- as.factor(Y_train)
+Y_test <- as.factor(Y_test)
 ```
 
 
+The first classification method we used is Linear Discriminant Analysis (LDA), which is based on finding a linear combination of features that best separates classes of objects. This resulting combination can hence later be used as a linear classifier.
 
+As a method, LDA relies on several key assumptions e.g:
 
-LDA
-```{r}
+- Predictor variables are assumed to be normally distributed
 
-```
+- Independence of Predictors
 
-
-QDA
-```{r}
-
-```
-
-
-
-Naive-Bayes -Marco
-```{r}
-# Create a formula to include all variables except the target variable
-formula_all_vars <- as.formula(paste("HeartDisease ~", paste(names(heart_failure)[-which(names(heart_failure) == "HeartDisease")], collapse = "+")))
-
-# Fit the Naive Bayes model using all variables
-fit_NB <- naiveBayes(formula_all_vars, usekernel = TRUE, data = heart_failure)
-
-
-```
+- Equal Covariance Matrix for both of the classes.
 
 ```{r}
-actual <- heart_failure$HeartDisease
-
-# Make predictions using the fitted Naive Bayes model
-predicted <- predict(fit_NB, newdata = heart_failure)
-
-# Ensure factor levels are consistent
-actual <- factor(actual, levels = levels(predicted))
-
-# Create confusion matrix
-conf_matrix <- confusionMatrix(predicted, actual)
-
-# Print the confusion matrix
-print(conf_matrix)
-```
-
-```{r}
-# Set a seed for reproducibility
-set.seed(123)
-
-# Assuming 'heart_failure' is your data frame
-# Assuming 'HeartDisease' is the actual target variable in your dataset
-in_train <- createDataPartition(heart_failure$HeartDisease, p = 0.8, list = FALSE)
-
-# Create training and testing sets
-train_data <- heart_failure[in_train, ]
-test_data <- heart_failure[-in_train, ]
-
-# Get unique levels from the complete dataset
-all_levels <- levels(heart_failure$HeartDisease)
-
-# Ensure factor levels are consistent in the training set
-train_data$HeartDisease <- factor(train_data$HeartDisease, levels = all_levels)
-
-# Fit the Naive Bayes model using the training set
-fit_NB <- naiveBayes(formula_all_vars, usekernel = TRUE, data = train_data)
+# Initialize the LDA model
+lda_model <- lda(Y_train ~ ., data = X_train)
 
 # Make predictions on the testing set
-predicted <- predict(fit_NB, newdata = test_data)
+y_pred <- predict(lda_model, newdata = X_test)$class
 
-# Ensure factor levels are consistent in the predicted values
-predicted <- factor(predicted, levels = all_levels)
-
-# Create confusion matrix
-conf_matrix <- confusionMatrix(predicted, test_data$HeartDisease)
-
-# Print the confusion matrix
+# Get confusion matrix
+conf_matrix <- table(Actual = Y_test, Predicted = y_pred)
+print("Confusion Matrix:")
 print(conf_matrix)
+
+# Get classification report  
+class_report <- confusionMatrix(conf_matrix)
+
+
+# Get model's performance
+cat("\nAccuracy:", class_report$overall['Accuracy'], "\n")
+cat("Precision:", class_report$byClass['Pos Pred Value'], "\n")
+cat("Recall (Sensitivity):", class_report$byClass['Sensitivity'], "\n")
+cat("Specificity", class_report$byClass['Specificity'], "\n")
 ```
 
+To supplement the performance evaluation of our classifiers, we use the ROC (Receiver Operating Characteristic) Curve along with the AUC (Area under the Curve) measure.
+The ROC curve plots the True Positive Rate (sensitivity or recall) against the False Positive Rate (1 - specificity) at various threshold settings, allowing to visually assess the trade-offs between detecting true positives and avoiding false positives. 
+The Area Under the ROC Curve (AUC) is a scalar value that efficiently summarizes the entire ROC curve into a single metric, representing the classifier's ability to distinguish between the positive and negative classes, regardless of the level of the probability threshold. 
+The higher the AUC, the higher the model's discriminative ability - capability to correctly distinguish between the different classes in the dataset. 
+An AUC of 1 would hence indicate perfect classification, while an AUC of 0.5 suggests performance no different to random guessing.
+ 
+The use of the ROC and AUC for performance allows us to get a more comprehensive evaluation of our model's discriminative power, without reliance on a specific decision threshold, whose impact is directly reflected in the curve:
+Moving towards the bottom left corner relates to increasing the threshold, which decreases sensitivity, as the threshold for predicting a positive class (1 -- disease) is higher.
+Conversely, moving towards the top right of the curve implies lowering the threshold, which is reflected in a higher sensitivity, as a lower threshold is needed for a positive class to be assigned.
 
-
-Logistic -Marco
 ```{r}
+y_pred_prob <- predict(lda_model, newdata = X_test, type = "response")$posterior[,2]
 
+# Calculate AUC
+roc_result <- roc(Y_test, y_pred_prob)
+auc_value <- auc(roc_result)
+
+# Print AUC
+cat("AUC (Area Under the ROC Curve):", auc_value, "\n")
+
+plot(roc_result, main="ROC Curve", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")  
+# Adds a diagonal dashed line representing a no-discrimination classifier
+
+# Optionally, you can add the AUC value to the plot
+auc_value <- auc(roc_result)
+legend("bottomright", legend=paste("AUC =", round(auc_value, 3)), box.lty=0)
+```
+
+
+We now consider and plot the direct interrelation between our model's sensitivity and specific threshold. Clearly, the relationship between the two needs to be inverse, in that high threshold values make it "more difficult" for an observation to be classified as positive (i.e.a patient has heart disease). 
+This analysis also allows us to find alternative "optimal" sensitivity values of the model by adapting the threshold values so that the sum of the sensitivity and specificity of the model is maximized. This is in contrast with the values obtained in the first part of our analysis, which were evaluated at the benchmark threshold level of 0.5
+As sensitivity is the key metric of interest in the case of heart disease classification, this analysis allows us to visualize, consider, and select potentially better suited threshold levels that would help increase the performance of our classifier.
+```{r}
+# Plotting model sensitivity depending on probability threshold
+# Create a data frame for plotting
+recall_data <- data.frame(
+  Threshold = roc_result$thresholds,
+  Recall = roc_result$sensitivities
+)
+
+# Subset to only include thresholds between 0 and 1
+recall_data <- subset(recall_data, Threshold >= 0 & Threshold <= 1)
+
+# Find the optimal index and threshold
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_recall <- roc_result$sensitivities[optimal_index]
+
+
+# Plotting recall against probability threshold levels
+ggplot(recall_data, aes(x = Threshold, y = Recall)) +
+  geom_line(color = "blue") +  
+  geom_point(aes(x = optimal_threshold, y = optimal_recall), color = "red", size = 3) +
+  labs(
+    title = "Recall for Different Thresholds in Heart Disease Prediction",
+    x = "Probability Threshold",
+    y = "Recall (Sensitivity)"
+  ) +
+  theme_minimal()  
+
+
+
+# Find the optimal index and corresponding threshold, sensitivity, and specificity
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_sensitivity <- roc_result$sensitivities[optimal_index]
+optimal_specificity <- roc_result$specificities[optimal_index]
+
+# Print out the optimal coordinates
+cat("Optimal Threshold:", optimal_threshold, "\n")
+cat("Optimal Sensitivity (Recall):", optimal_sensitivity, "\n")
+cat("Optimal Specificity:", optimal_specificity, "\n")
 ```
 
 
 
--Conclusion/summary text-
+Quadratic Discriminant Analysis (QDA) is a classification method that extends Linear Discriminant Analysis (LDA) by allowing for different covariance matrices for each class. It seeks to find quadratic decision boundaries, providing more flexibility than LDA when classes exhibit distinct covariances. QDA is based on the following key characteristics:
+
+- Quadratic Decision Boundaries: In contrast to LDA's linear decision boundaries, QDA allows for quadratic decision boundaries between classes. This flexibility enables QDA to model more complex relationships in the data, capturing non-linear patterns that may be present.
+
+- Multivariate Normal Distribution: Similar to LDA, QDA assumes that predictor variables within each class follow a multivariate normal distribution. This assumption is fundamental for the estimation of parameters in the model.
+
+- Independence of Predictors: QDA, like LDA, assumes the independence of predictor variables within each class.. This simplifying assumption aids in parameter estimation and prevents multicollinearity issues.
+
+Class-Specific Covariance Matrices: Unlike LDA, QDA relaxes the assumption of a common covariance matrix for all classes. Instead, QDA allows for different covariance matrices for each class. This is particularly beneficial when dealing with datasets where different classes exhibit distinct variances and covariances.
+
+```{r}
+# Initialize the QDA model
+qda_model <- qda(Y_train ~ ., data = X_train)
+
+# Make predictions on the testing set
+y_pred <- predict(qda_model, newdata = X_test)$class
+
+# Get confusion matrix
+conf_matrix <- table(Actual = Y_test, Predicted = y_pred)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Get classification report  
+class_report <- confusionMatrix(conf_matrix)
+
+# Get model's performance
+cat("\nAccuracy:", class_report$overall['Accuracy'], "\n")
+cat("Precision:", class_report$byClass['Pos Pred Value'], "\n")
+cat("Recall (Sensitivity):", class_report$byClass['Sensitivity'], "\n")
+cat("Specificity:", class_report$byClass['Specificity'], "\n")
+```
+
+```{r}
+y_pred_prob <- predict(qda_model, newdata = X_test, type = "response")$posterior[,2]
+
+# Calculate AUC
+roc_result <- roc(Y_test, y_pred_prob)
+auc_value <- auc(roc_result)
+
+# Print AUC
+cat("AUC (Area Under the ROC Curve):", auc_value, "\n")
+
+plot(roc_result, main="ROC Curve", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")
+# Adds a diagonal dashed line representing a no-discrimination classifier
+
+# Optionally, you can add the AUC value to the plot
+auc_value <- auc(roc_result)
+legend("bottomright", legend=paste("AUC =", round(auc_value, 3)), box.lty=0)
+```
+
+
+```{r}
+# Plotting model sensitivity depending on probability threshold
+# Create a data frame for plotting
+recall_data <- data.frame(
+  Threshold = roc_result$thresholds,
+  Recall = roc_result$sensitivities
+)
+
+# Subset to only include thresholds between 0 and 1
+recall_data <- subset(recall_data, Threshold >= 0 & Threshold <= 1)
+
+# Find the optimal index and threshold
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_recall <- roc_result$sensitivities[optimal_index]
+
+
+# Plotting recall against probability threshold levels
+ggplot(recall_data, aes(x = Threshold, y = Recall)) +
+  geom_line(color = "blue") + 
+  geom_point(aes(x = optimal_threshold, y = optimal_recall), color = "red", size = 3) +
+  labs(
+    title = "Recall for Different Thresholds in Heart Disease Prediction",
+    x = "Probability Threshold",
+    y = "Recall (Sensitivity)"
+  ) +
+  theme_minimal()  
+
+
+# Find the optimal index and corresponding threshold, sensitivity, and specificity
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_sensitivity <- roc_result$sensitivities[optimal_index]
+optimal_specificity <- roc_result$specificities[optimal_index]
+
+# Print out the optimal coordinates
+cat("Optimal Threshold:", optimal_threshold, "\n")
+cat("Optimal Sensitivity (Recall):", optimal_sensitivity, "\n")
+cat("Optimal Specificity:", optimal_specificity, "\n")
+```
+
+
+
+Naive Bayes is a probabilistic machine learning algorithm based on Bayes' theorem. It is particularly useful for classification tasks, especially in text classification and spam filtering. The "naive" part comes from the assumption of independence among features given the class label. Despite this simplifying assumption, Naive Bayes often performs well and is computationally efficient. It calculates the probability of a given instance belonging to each class and selects the class with the highest probability.
+Some key assumptions include:
+
+- Conditional Independence
+
+- Feature Distribution, it assumes each feature is independent across classes.
+
+```{r}
+# Create the Naive Bayes model
+naive_bayes_model <- naiveBayes(X_train, Y_train)
+
+# Use the model on the test dataset
+Y_pred <- predict(naive_bayes_model, newdata = X_test)
+
+# Get confusion matrix
+conf_matrix <- table(Actual = Y_test, Predicted = Y_pred)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Get classification report  
+class_report <- confusionMatrix(conf_matrix)
+
+# Get model's performance
+cat("\nAccuracy:", class_report$overall['Accuracy'], "\n")
+cat("Precision:", class_report$byClass['Pos Pred Value'], "\n")
+cat("Recall (Sensitivity):", class_report$byClass['Sensitivity'], "\n")
+cat("Specificity:", class_report$byClass['Specificity'], "\n")
+```
+```{r}
+y_pred_prob <- predict(naive_bayes_model, newdata = X_test, type="raw")[,2]
+
+# Calculate AUC
+roc_result <- roc(Y_test, y_pred_prob)
+auc_value <- auc(roc_result)
+
+# Print AUC
+cat("AUC (Area Under the ROC Curve):", auc_value, "\n")
+
+plot(roc_result, main="ROC Curve", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")
+# Adds a diagonal dashed line representing a no-discrimination classifier
+
+# Optionally, you can add the AUC value to the plot
+auc_value <- auc(roc_result)
+legend("bottomright", legend=paste("AUC =", round(auc_value, 3)), box.lty=0)
+```
+```{r}
+# Plotting model sensitivity depending on probability threshold
+# Create a data frame for plotting
+recall_data <- data.frame(
+  Threshold = roc_result$thresholds,
+  Recall = roc_result$sensitivities
+)
+
+# Subset to only include thresholds between 0 and 1
+recall_data <- subset(recall_data, Threshold >= 0 & Threshold <= 1)
+
+# Find the optimal index and threshold
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_recall <- roc_result$sensitivities[optimal_index]
+
+
+# Plotting recall against probability threshold levels
+ggplot(recall_data, aes(x = Threshold, y = Recall)) +
+  geom_line(color = "blue") +
+  geom_point(aes(x = optimal_threshold, y = optimal_recall), color = "red", size = 3) + 
+  labs(
+    title = "Recall for Different Thresholds in Heart Disease Prediction",
+    x = "Probability Threshold",
+    y = "Recall (Sensitivity)"
+  ) +
+  theme_minimal()  
+
+
+# Find the optimal index and corresponding threshold, sensitivity, and specificity
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_sensitivity <- roc_result$sensitivities[optimal_index]
+optimal_specificity <- roc_result$specificities[optimal_index]
+
+# Print out the optimal coordinates
+cat("Optimal Threshold:", optimal_threshold, "\n")
+cat("Optimal Sensitivity (Recall):", optimal_sensitivity, "\n")
+cat("Optimal Specificity:", optimal_specificity, "\n")
+```
+
+
+
+
+Logistic Regression is a statistical method used for binary classification problems. Despite its name, it is used for classification rather than regression. Logistic Regression models the probability of an instance belonging to a particular class using the logistic function. It produces an output between 0 and 1, representing the probability of the instance belonging to the positive class. Logistic Regression is widely used due to its simplicity, interpretability, and efficiency. It can be extended to handle multi-class classification problems through techniques like one-vs-rest or softmax regression.
+Some of the main assumptions:
+
+- Large sample size
+
+- Absence of Outliers
+
+- No Multicollinearity
+
+```{r}
+# Create the logistic model
+logistic_model <- glm(Y_train ~ ., data = X_train, family = binomial)
+
+# Use the model on the test dataset
+Y_pred <- predict(logistic_model, newdata = X_test, type = "response")
+
+# Convert predicted probabilities to class labels (0 or 1)
+Y_pred <- ifelse(Y_pred > 0.5, 1, 0)
+
+# Get confusion matrix
+conf_matrix <- table(Actual = Y_pred, Predicted = Y_test)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Get classification report  
+class_report <- confusionMatrix(conf_matrix)
+
+# Get model's performance
+cat("\nAccuracy:", class_report$overall['Accuracy'], "\n")
+cat("Precision:", class_report$byClass['Pos Pred Value'], "\n")
+cat("Recall (Sensitivity):", class_report$byClass['Sensitivity'], "\n")
+cat("Specificity:", class_report$byClass['Specificity'], "\n")
+```
+```{r}
+y_pred_prob <- predict(logistic_model, newdata = X_test, type="response")
+
+# Calculate AUC
+roc_result <- roc(Y_test, y_pred_prob)
+auc_value <- auc(roc_result)
+
+# Print AUC
+cat("AUC (Area Under the ROC Curve):", auc_value, "\n")
+
+plot(roc_result, main="ROC Curve", col="#1c61b6", lwd=2)
+abline(a=0, b=1, lty=2, col="gray")
+# Adds a diagonal dashed line representing a no-discrimination classifier
+
+# Optionally, you can add the AUC value to the plot
+auc_value <- auc(roc_result)
+legend("bottomright", legend=paste("AUC =", round(auc_value, 3)), box.lty=0)
+```
+```{r}
+# Plotting model sensitivity depending on probability threshold
+# Create a data frame for plotting
+recall_data <- data.frame(
+  Threshold = roc_result$thresholds,
+  Recall = roc_result$sensitivities
+)
+
+# Subset to only include thresholds between 0 and 1
+recall_data <- subset(recall_data, Threshold >= 0 & Threshold <= 1)
+
+# Find the optimal index and threshold
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_recall <- roc_result$sensitivities[optimal_index]
+
+
+# Plotting recall against probability threshold levels
+ggplot(recall_data, aes(x = Threshold, y = Recall)) +
+  geom_line(color = "blue") +  
+  geom_point(aes(x = optimal_threshold, y = optimal_recall), color = "red", size = 3) +
+  labs(
+    title = "Recall for Different Thresholds in Heart Disease Prediction",
+    x = "Probability Threshold",
+    y = "Recall (Sensitivity)"
+  ) +
+  theme_minimal()  
+
+
+# Find the optimal index and corresponding threshold, sensitivity, and specificity
+optimal_index <- which.max(roc_result$sensitivities + roc_result$specificities - 1)
+optimal_threshold <- roc_result$thresholds[optimal_index]
+optimal_sensitivity <- roc_result$sensitivities[optimal_index]
+optimal_specificity <- roc_result$specificities[optimal_index]
+
+# Print out the optimal coordinates
+cat("Optimal Threshold:", optimal_threshold, "\n")
+cat("Optimal Sensitivity (Recall):", optimal_sensitivity, "\n")
+cat("Optimal Specificity:", optimal_specificity, "\n")
+```
+Summary table
+```{r}
+# Create a data frame with the provided values rounded to 4 decimals
+summary_table <- data.frame(
+  Model = c("LDA", "QDA", "Naive Bayes", "Logistic Regression"),
+  Accuracy = round(c(0.8609626, 0.855615, 0.8502674, 0.855615), 4),
+  Precision = round(c(0.8817204, 0.8602151, 0.8817204, 0.8367347), 4),
+  Recall = round(c(0.8453608, 0.8510638, 0.8282828, 0.8817204), 4),
+  Specificity = round(c(0.8777778, 0.8602151, 0.875, 0.8297872), 4),
+  AUC = round(c(0.9200412, 0.8882407, 0.9051704, 0.9167239), 4)
+)
+
+# Print the summary table using the kable and knitr packages
+kable(summary_table, format = "html", align = "c") %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  column_spec(2:6, width = "2em")  
+```
+
+
+Sumamry table 2
+```{r}
+data <- data.frame(
+  Model = c("LDA", "QDA", "Naive Bayes", "Logistic"),
+  `Optimal Threshold` = round(c(0.3288703, 0.5984044, 0.2155241, 0.3693672), 4),
+  `Optimal Sensitivity (Recall)` = round(c(0.893617, 0.8404255, 0.8404255, 0.8829787), 4),
+  `Optimal Specificity` = round(c(0.8602151, 0.8709677, 0.8709677, 0.8817204), 4)
+)
+
+# Print the summary table using the kable and knitr packages
+kable(data, format = "html", align = "c") %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  column_spec(2:4, width = "2em")
+```
+
+
+In evaluating four classification models for heart disease prediction —LDA, QDA, Naive Bayes and Logistic Regression—a key focus is on minimizing false negatives, as correctly identifying individuals with the disease is crucial. Logistic Regression stands out as the preferred model in this context, boasting the highest recall value at 88.17%, indicating its effectiveness in capturing true positive instances. While LDA follows closely with a recall of 84.54%, Logistic Regression's superior performance in this critical metric makes it a compelling choice. Moreover, Logistic Regression maintains competitive values in accuracy, precision, specificity, and AUC, showcasing a well-rounded performance without significant trade-offs. Therefore, considering the paramount importance of minimizing false negatives in the context of heart disease prediction, Logistic Regression emerges as the most favorable model among the evaluated options.
+
+That said, our additional threshold-recall analysis brought slightly different results, with the LDA classifier leading the way with the highest recall at 89.36%. Moreover, despite a considerably lower 'optimal' threshold value than its QDA counterpart, the LDA classifier maintained a very high specificity, pointing to the model's ability to accurately identify negative cases. 
+This strong performance of the LDA classifier may be suggesting that the underlying assumptions of the LDA model regarding the model's paramaters were indeed met, which could be tested graphically or statistically (Shapiro_Wilk test for normality, Levene's test of homogeneity). That said the Logistic Regression model still seems the best performing option all things considered.
+
