@@ -1,0 +1,195 @@
+Created by: 
+Marco Hafid - 22-620-546
+Matus Kubla - 23-604-382
+
+Importing the libraries
+```{r}
+# Installing the required packages
+library(numDeriv)
+library(glmnet)
+library(nlme)
+```
+
+#### Problem A ####
+Gradient Descent Function
+```{r}
+# Define the Gradient Descent Function
+# x = current_value
+# learning_rate = gamma
+gradient_descent <- function(f, start_value, max_iterations, learning_rate) {
+  x <- start_value
+  path <- numeric(max_iterations)
+  
+  for (i in 1:max_iterations) {
+    gradient <- grad(f, x)
+    x <- x - learning_rate * gradient
+    path[i] <- f(x)
+  }
+  
+  return(list(minimizer = x, values_path = path))
+}
+```
+
+Testing the gradient Descent Function on the Rosenbrock function
+```{r}
+# Example usage
+# Define a test function, e.g., the Rosenbrock function
+rosenbrock <- function(x) {
+  sum(100 * (x[2:length(x)] - x[1:(length(x) - 1)]^2)^2 + (1 - x[1:(length(x) - 1)])^2)
+}
+
+# Set parameters
+start_value <- c(0, 0)  # Initial guess
+max_iterations <- 1000   # Maximum number of iterations
+learning_rate <- 0.009  # Experiment with different choices
+
+# Run gradient descent
+result <- gradient_descent(rosenbrock, start_value, max_iterations, learning_rate)
+
+# Print the minimizer and the path of function values
+cat("Minimizer:", result$minimizer, "\n")
+#cat("Function values path:", result$values_path, "\n")
+
+# Plot the path of function values
+plot(result$values_path, type = 'l', xlab = 'Iteration', ylab = 'Function Value',
+     main = 'Gradient Descent Path')
+```
+Testing the Gradient Descent Function on the Goldstein-Price Function
+```{r}
+# Define the Goldstein–Price function
+goldstein_price <- function(x) {
+  term1 <- 1 + (x[1] + x[2] + 1)^2 * (19 - 14 * x[1] + 3 * x[1]^2 - 14 * x[2] + 6 * x[1] * x[2] + 3 * x[2]^2)
+  term2 <- 30 + (2 * x[1] - 3 * x[2])^2 * (18 - 32 * x[1] + 12 * x[1]^2 + 48 * x[2] - 36 * x[1] * x[2] + 27 * x[2]^2)
+  return(term1 * term2)
+}
+
+# Set parameters
+start_value <- c(0, 0)  # Initial guess
+max_iterations <- 100   # Maximum number of iterations
+learning_rate <- 0.000595  # Experiment with different choices
+
+# Run gradient descent
+# Using optim function for optimization
+result_optim <- optim(par = start_value, fn = goldstein_price, method = "L-BFGS-B")
+result <- gradient_descent(goldstein_price, start_value, max_iterations, learning_rate)
+
+# Print the minimizer and the path of function values
+cat("Minimizer:", result$minimizer, "\n")
+cat("Function values path:", result$values_path, "\n")
+
+# Plot the path of function values
+plot(result$values_path, type = 'l', xlab = 'Iteration', ylab = 'Function Value',
+     main = 'Gradient Descent Path - Goldstein–Price Function')
+```
+Testing the Gradient Descent Function on the Three-Hump Camel function
+```{r}
+# Define the Three-Hump Camel function
+three_hump_camel <- function(x) {
+  return(2 * x[1]^2 - 1.05 * x[1]^4 + x[1]^6 / 6 + x[1] * x[2] + x[2]^2)
+}
+
+# Set parameters
+start_value <- c(4, 4)  # Initial guess
+max_iterations <- 1000   # Maximum number of iterations
+learning_rate <- 0.005    # Experiment with different choices
+
+# Run gradient descent
+result <- gradient_descent(three_hump_camel, start_value, max_iterations, learning_rate)
+
+# Print the minimizer and the path of function values
+cat("Minimizer:", result$minimizer, "\n")
+#cat("Function values path:", result$values_path, "\n")
+
+# Plot the path of function values
+plot(result$values_path, type = 'l', xlab = 'Iteration', ylab = 'Function Value',
+     main = 'Gradient Descent Path - Three-Hump Camel Function')
+```
+```{r}
+# Function for plotting the contour and optimization path
+plot_contour_with_path <- function(f, range_x, range_y, values_path) {
+  x_seq <- seq(range_x[1], range_x[2], length.out = 200)
+  y_seq <- seq(range_y[1], range_y[2], length.out = 200)
+  z <- outer(x_seq, y_seq, Vectorize(function(x, y) f(c(x, y))))
+  
+  filled.contour(x_seq, y_seq, log(z + 1), nlevels = 50, color.palette = viridis::viridis,
+                 xlab = "x", ylab = "y", main = "Function Contour with Optimization Path",
+                 plot.axes = {
+                   axis(1); axis(2)
+                   points(values_path[,1], values_path[,2], col = "orange", pch = 20, cex = 0.5)
+                   points(values_path[1,1], values_path[1,2], col = "red", pch = 20, cex = 0.7)
+                   points(values_path[nrow(values_path),1], values_path[nrow(values_path),2], col = "red", pch = 8, cex = 0.7)
+                 })
+}
+
+plot_contour_with_path(goldstein_price, c(-3, 1), c(-2, 2), result$minimizer)
+
+
+```
+
+
+#### Problem B ####
+```{r}
+library(glmnet)
+library(Matrix)
+
+# Your custom ridge regression function is already well defined:
+ridge_gls_estimator <- function(y, X, initial_values, max_iterations, lambda, tol = 1e-8) {
+  n <- nrow(X)
+  p <- ncol(X)
+  a <- initial_values
+  
+  for (m in 1:max_iterations) {
+    i <- sample(1:n, 1)
+    gi_gradient <- compute_gradient(X[i, ], y[i], a, lambda)
+    gamma_m <- 1 / m
+    a_new <- a - gamma_m * gi_gradient
+    
+    if (sum((a_new - a)^2) < tol) {
+      message("Convergence achieved after ", m, " iterations.")
+      break
+    }
+    
+    a <- a_new
+  }
+  
+  return(a)
+}
+
+compute_gradient <- function(xi, yi, a, lambda) {
+  residual <- yi - sum(a * xi)
+  gradient <- -2 * xi * residual
+  gradient[2:length(gradient)] <- gradient[2:length(gradient)] + 2 * lambda * a[2:length(a)]
+  return(gradient)
+}
+
+# Simulate data
+set.seed(123)
+n <- 100
+p2 <- 5
+X <- matrix(rnorm(n * p2), n, p2)
+beta_true <- c(2, 1.5, -1, 0.5, -2)
+y <- X %*% beta_true + rnorm(n)
+
+initial_values <- rep(0, p2)
+max_iterations <- 10000
+lambda <- 0.1
+
+# Using the custom function
+ridge_gls_result <- ridge_gls_estimator(y, X, initial_values, max_iterations, lambda)
+print("Custom Ridge Estimator:")
+print(ridge_gls_result)
+
+# Using glmnet for Ridge Regression:
+# glmnet needs the x matrix to be a sparse matrix and y as a vector
+x_matrix <- Matrix(X, sparse = TRUE)
+
+# Fit Ridge Regression model with glmnet - For ridge regression, alpha = 0
+ridge_glmnet_model <- glmnet(x_matrix, y, alpha = 0, lambda = lambda)
+
+print("glmnet Ridge Estimator:")
+# Extracting coefficients - excluding intercept by indexing from -1
+ridge_glmnet_coef <- as.vector(coef(ridge_glmnet_model, s = lambda)[-1])
+print(ridge_glmnet_coef)
+```
+
+
