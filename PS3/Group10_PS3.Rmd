@@ -12,7 +12,6 @@ Question 1:
 
 Defining the functions
 ```{r}
-# Function to calculate the distance between two points using p-norm
 calculate_distance <- function(point1, point2, p = 2) {
   sum(abs(point1 - point2)^p)^(1/p)
 }
@@ -51,7 +50,7 @@ simulate_datasets <- function(n_samples, n_test_samples, dim) {
 }
 
 # Function to evaluate the classification accuracy for different sample sizes
-evaluate_accuracy_with_sample_sizes <- function(dim, k_values, sample_sizes) {
+evaluate_accuracy_with_sample_sizes <- function(dim, k_values, sample_sizes, n_test_samples) {
   for (n_samples in sample_sizes) {
     cat("Sample Size:", n_samples, "\n")
     
@@ -82,11 +81,13 @@ sample_sizes <- c(100, 200, 300)
 dimensions <- c(10, 50, 1000)
 k_values <- c(3, 5)
 
+# Set the number of test samples
+n_test_samples <- 50  # You can adjust this value based on your needs
+
 # Testing the kNN algorithm with different sample sizes, feature dimensions, and k-values
 for (dim in dimensions) {
-  evaluate_accuracy_with_sample_sizes(dim, k_values, sample_sizes)
+  evaluate_accuracy_with_sample_sizes(dim, k_values, sample_sizes, n_test_samples)
 }
-
 ```
 
 
