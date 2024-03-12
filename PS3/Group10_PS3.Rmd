@@ -2,21 +2,36 @@ Created by:
 Marco Hafid - 22-620-546
 Matus Kubla - 23-604-382
 
+Disclaimer: Due to the running time of the code we reduced the sample size for the final version.
 
 Importing libraries
 ```{r}
-library(class)
-library(pracma)
+suppressWarnings({
+  library(class)
+  library(pracma)
+  library(ggplot2)
+})
 ```
 Question 1:
 
+In the first question, we create a k-Nearest Neighbors algorithm that will aim to accurately classify simulated datasest into classes. We train the model on a generated training dataset and test its accuracy 50 (arbitrary number) of additional, randomly generated samples. Our estimation function takes both the hyperparameter k (number of nearest neighbors to consider) and the p-norm as parameters, allowing to flexibly test the model's performance on various 'settings'.
+In our case, we default the p-norm to 2, indicating to use the Euclidean distance.
+ 
+The model will be tested with k values of 3 and 5, but can easily be replicated
+with different values.  We opted for these values to strike a balance between robustness to noise (to avoid overfitting), precision, and computational complexity.
+When simulating datasets, we use three, increasing feature dimensions.
+Similarly, we also alternate between various sample sizes (100, 200, 300 (chosen arbitrarily)), and provide an analysis of results, including both accuracy and runtime for all possible combinations of parameters.
+
+
+
 Defining the functions
 ```{r}
+# Create function to calculate the distance of two points
 calculate_distance <- function(point1, point2, p = 2) {
   sum(abs(point1 - point2)^p)^(1/p)
 }
 
-# Function to predict the class of a test point using kNN
+# Create function to predict the class of a test point using kNN
 knn_predict <- function(train_data, train_labels, test_point, k = 3, p = 2) {
   distances <- apply(train_data, 1, function(train_point) calculate_distance(train_point, test_point, p))
   nearest_neighbors <- order(distances)[1:k]
@@ -25,7 +40,7 @@ knn_predict <- function(train_data, train_labels, test_point, k = 3, p = 2) {
   return(predicted_class)
 }
 
-# Function to evaluate the classification accuracy
+# Create function to evaluate the classification accuracy
 evaluate_accuracy <- function(train_data, train_labels, test_data, test_labels, k = 3, p = 2) {
   predictions <- sapply(1:nrow(test_data), function(i) knn_predict(train_data, train_labels, test_data[i, ], k, p))
   accuracy <- sum(predictions == test_labels) / length(test_labels)
@@ -37,7 +52,7 @@ evaluate_accuracy <- function(train_data, train_labels, test_data, test_labels, 
 
 Generating the random dataset and calling the functions
 ```{r}
-# Function to simulate training and test datasets
+# Create function to simulate training and test datasets
 simulate_datasets <- function(n_samples, n_test_samples, dim) {
   set.seed(123)
   train_data <- matrix(runif(n_samples * dim), ncol = dim)
@@ -49,7 +64,7 @@ simulate_datasets <- function(n_samples, n_test_samples, dim) {
   return(list(train_data = train_data, train_labels = train_labels, test_data = test_data, test_labels = test_labels))
 }
 
-# Function to evaluate the classification accuracy for different sample sizes
+# Create function to evaluate the classification accuracy for different sample sizes
 evaluate_accuracy_with_sample_sizes <- function(dim, k_values, sample_sizes, n_test_samples) {
   for (n_samples in sample_sizes) {
     cat("Sample Size:", n_samples, "\n")
@@ -82,7 +97,7 @@ dimensions <- c(10, 50, 1000)
 k_values <- c(3, 5)
 
 # Set the number of test samples
-n_test_samples <- 50  # You can adjust this value based on your needs
+n_test_samples <- 50
 
 # Testing the kNN algorithm with different sample sizes, feature dimensions, and k-values
 for (dim in dimensions) {
@@ -90,23 +105,61 @@ for (dim in dimensions) {
 }
 ```
 
+The plot could not be knitted for some reason, we attached the image separately.
+```{r}
+# # Create function to plot accuracy and runtime
+# plot_accuracy_runtime <- function(results) {
+#   results$Runtime <- as.numeric(as.character(results$Runtime)) # Convert Runtime to numeric
+#   
+#   ggplot(results, aes(x = Sample_Size, y = Accuracy, color = factor(k), group = factor(k))) +
+#     geom_line() +
+#     geom_point() +
+#     facet_grid(Dimensions ~ .) +
+#     labs(title = "Accuracy vs. Sample Size by k and Dimension",
+#          x = "Sample Size",
+#          y = "Accuracy",
+#          color = "k") +
+#     theme_minimal() +
+#     theme(legend.position = "bottom") +
+#     scale_color_discrete(name = "k") +
+#     geom_line(aes(y = Runtime / max(Runtime) * max(Accuracy) * 0.95), linetype = "dashed", color = "black") +
+#     geom_point(aes(y = Runtime / max(Runtime) * max(Accuracy) * 0.95), color = "black", shape = 1) +
+#     geom_text(aes(label = paste0(Runtime, "s"), y = Runtime / max(Runtime) * max(Accuracy) * 0.95), vjust = -0.5, hjust = -0.5, size = 3)
+# }
+# 
+# # Evaluate accuracy and runtime
+# results <- data.frame()
+# for (dim in dimensions) {
+#   results <- rbind(results, evaluate_accuracy_with_sample_sizes(dim, k_values, sample_sizes, n_test_samples))
+# }
+# 
+# # Plot accuracy and runtime
+# plot_accuracy_runtime(results)
+```
+
+
+Looking at the results, we see a comparable accuracy across sample sizes, ranging from 0,4 to 0,6. When assessing the effect of different values for the k paramater, we notice heterogeneous impacts across sample sizes. While increasing k leads to worse accuracy for all sample sizes when the feature dimension is small (10), the opposite is true when we increasing the dimension to 1000. The impact when considering the feature dimension of 50 proved to not be uniform across sample sizes.
+Note that, while an increased number of features should technically lead to more accurate decisions (we have more information about each data point), including way too many features can lead to overfitting, which leads to worse out of sample predictions and hence lower accuracy. This may be an explanation why, when using 1000 features, acccuracy was on average worse than for the 50 feature case, which proved to yield the highest accuracy.
+Finally, when looking at runtime, we observe a clear upward trend as the feature dimension and sample size increases. This makes sense, as both of these factors have a direct impact on the computational requirements of the algorithm. As the KNN algorithm needs to calculate distances between individual observations, this becomes increasingly more complicated as the number of features (and hence the dimensionality of the data) increases. Similarly, a bigger sample size clearly involves more calculations to be made, leading to higher runtime. This was reflected in our measurements, with the model (s = 300 ; d = 1000) taking more than 10x as much time as the simple (s=100 ; d =10) case.
+That said, while the latter applies, individual runtimes are influenced by other factors unique to the computer at that specific time, and may not always accurately reflect the increase in computational complexity beyween the different cases.
+
 
 Compare our function to the inbuilt class package
 ```{r}
-# Function to perform kNN using the 'class' package
+# Create function to perform kNN using the 'class' package
 knn_class_package <- function(train_data, train_labels, test_data, k = 3) {
   predictions <- knn(train_data, test_data, train_labels, k = k)
   return(predictions)
 }
 
-# Function to evaluate the classification accuracy using the 'class' package
+# Create function to evaluate the classification accuracy using the 'class' package
 evaluate_accuracy_class_package <- function(train_data, train_labels, test_data, test_labels, k = 3) {
   predictions <- knn_class_package(train_data, train_labels, test_data, k)
   accuracy <- sum(predictions == test_labels) / length(test_labels)
   return(accuracy)
 }
 
-# Function to evaluate both custom kNN and 'class' package for comparison
+# Create function to evaluate both custom kNN and 'class' package for comparison
 compare_knn_implementations <- function(dim, k_values, sample_sizes) {
   for (n_samples in sample_sizes) {
     cat("Sample Size:", n_samples, "\n")
@@ -146,82 +199,28 @@ for (dim in dimensions) {
 }
 
 ```
-Improved version of our custom function, runtime is faster however still slower then the inbuilt package.
+We later compared our results to those obtained by the built-in package class. The accuracy of our initial KNN algorithm matched that of the built-in package, indicating our model to have the same proportion of correct classifications. That said, despite yielding pretty much identical classification results in all scenarios, the runtime of our algorithm showed to be considerably bigger than that of the built-in package, taking up to 17x as long in some instances. While this doesn’t represent a tangible difference when classifying small samples as in our case (differences are in hundredth’s of a second), such a computing mismatch would be problematic if datasets were considerably larger.
+
+
+
+Question 2
+In the second exercise, we address the issue of computational complexity with high feature dimension by modifying the KNN algorithm. To do this, we generate a lower-dimensional orthonormal matrix to project high-dimensional feature vectors and dataset into a lower-dimensional space. This allows us to classify the feature vectors using k-nearest neighbours among the projected data, effectively reducing computational complexity. To do this, we use the built in function randortho from the pracma package.
+
+In the second exercise, we address the issue of computational complexity with high feature dimension by modifying the KNN algorithm. To do this, we generate a lower-dimensional orthonormal matrix to project high-dimensional feature vectors and dataset into a lower-dimensional space. This allows us to classify the feature vectors using k-nearest neighbours among the projected data, effectively reducing computational complexity. To do this, we use the built in function randortho from the pracma package.
+ 
+For our analysis, we explored the effects of different p-norms (mainly 1 (absolute-value) and 2 (Euclidean)). This is only a sample example, other norms could easily be implemented by changing the p-parameter. We also, included varying value for the k-hyperparameter, as well as alternating sample sizes. Similarly, we separate our results based on two possible values (can also be chosen), which assign the dimension to be reduced to. 
 ```{r}
-# Optimized kNN implementation
-knn_predict_optimized <- function(train_data, train_labels, test_point, k = 3, p = 2) {
-  distances <- rowSums((train_data - test_point)^p)^(1/p)
-  nearest_neighbors <- order(distances)[1:k]
-  nearest_labels <- train_labels[nearest_neighbors]
-  predicted_class <- as.numeric(names(sort(table(nearest_labels), decreasing = TRUE)[1]))
-  return(predicted_class)
+# Create function to generate a random orthonormal matrix
+generate_random_orthonormal_matrix <- function(p, l) {
+  U_full <- randortho(p)
+  U <- U_full[1:l, ]  # Selecting the first l rows
+  return(U)
 }
-
-# Optimized function to evaluate classification accuracy
-evaluate_accuracy_optimized <- function(train_data, train_labels, test_data, test_labels, k = 3) {
-  predictions <- apply(test_data, 1, function(test_point) knn_predict_optimized(train_data, train_labels, test_point, k))
-  accuracy <- sum(predictions == test_labels) / length(test_labels)
-  return(accuracy)
-}
-
-# Function to evaluate both custom kNN and 'class' package for comparison
-compare_knn_implementations_optimized <- function(dim, k_values, sample_sizes) {
-  for (n_samples in sample_sizes) {
-    cat("Sample Size:", n_samples, "\n")
-    
-    # Simulate datasets
-    datasets <- simulate_datasets(n_samples, n_test_samples, dim)
-    
-    for (k in k_values) {
-      cat("Dimensions:", dim, "\n")
-      cat("k:", k, "\n")
-      
-      # Measure the runtime and evaluate accuracy for optimized custom kNN
-      start_time_optimized <- Sys.time()
-      accuracy_optimized <- evaluate_accuracy_optimized(datasets$train_data, datasets$train_labels, datasets$test_data, datasets$test_labels, k)
-      cat("Optimized Custom kNN Accuracy:", accuracy_optimized, "\n")
-      cat("Optimized Custom kNN Runtime:", round(difftime(Sys.time(), start_time_optimized, units = "secs"), 2), "seconds\n\n")
-      
-      # Evaluate accuracy for 'class' package kNN
-      start_time_class <- Sys.time()
-      accuracy_class <- evaluate_accuracy_class_package(datasets$train_data, datasets$train_labels, datasets$test_data, datasets$test_labels, k)
-      cat("'class' Package kNN Accuracy:", accuracy_class, "\n")
-      cat("'class' Package kNN Runtime:", round(difftime(Sys.time(), start_time_class, units = "secs"), 2), "seconds\n\n")
-    }
-  }
-}
-
-# Testing both optimized custom kNN and 'class' package with different sample sizes, feature dimensions, and k-values
-for (dim in dimensions) {
-  compare_knn_implementations_optimized(dim, k_values, sample_sizes)
-}
-
-```
-
-Question 2:
-```{r}
-# Function to simulate training and test datasets
-simulate_datasets <- function(n_samples, n_test_samples, dim) {
-  set.seed(123)
-  train_data <- matrix(runif(n_samples * dim), ncol = dim)
-  train_labels <- sample(c(0, 1), n_samples, replace = TRUE)
-  
-  test_data <- matrix(runif(n_test_samples * dim), ncol = dim)
-  test_labels <- sample(c(0, 1), n_test_samples, replace = TRUE)
-  
-  return(list(train_data = train_data, train_labels = train_labels, test_data = test_data, test_labels = test_labels))
-}
-
-# Modified kNN algorithm with random projection
+ 
 knn_projected <- function(train_data, train_labels, test_data, k = 3, l = 5, p_norm = 2) {
-  # Generate a random orthonormal matrix U of dimension l x p
-  U <- randortho(ncol(train_data), l)
-  
-  # Project the training and test data onto the lower-dimensional space
+  U <- generate_random_orthonormal_matrix(ncol(train_data), l)
   train_data_projected <- train_data %*% t(U)
   test_data_projected <- test_data %*% t(U)
-  
-  # Classify an input feature vector x according to the k-nearest neighbors in the lower-dimensional space
   knn_predict <- function(train_data, train_labels, test_point, k, p_norm) {
     distances <- apply(train_data, 1, function(train_point) sum(abs(train_point - test_point)^p_norm)^(1/p_norm))
     nearest_neighbors <- order(distances)[1:k]
@@ -229,124 +228,93 @@ knn_projected <- function(train_data, train_labels, test_data, k = 3, l = 5, p_n
     predicted_class <- as.numeric(names(sort(table(nearest_labels), decreasing = TRUE)[1]))
     return(predicted_class)
   }
-  
-  # Predict labels for test_data_projected
   predictions <- apply(test_data_projected, 1, function(test_point) knn_predict(train_data_projected, train_labels, test_point, k, p_norm))
-  
   return(predictions)
 }
-
-# Function to evaluate the classification accuracy for different p-norms
+ 
 evaluate_accuracy_projected <- function(train_data, train_labels, test_data, test_labels, k = 3, l = 5, p_norm = 2) {
   predictions <- knn_projected(train_data, train_labels, test_data, k, l, p_norm)
   accuracy <- sum(predictions == test_labels) / length(test_labels)
   return(accuracy)
 }
+ 
+# Initialize an empty dataframe to store results
+results <- data.frame(n_samples = integer(),
+                      dim = integer(),
+                      l = integer(),
+                      k = integer(),
+                      p_norm = integer(),
+                      accuracy = numeric())
 
-# Function to compare the performance of the modified kNN algorithm with different p-norms
 compare_knn_projected <- function(dim, k_values, sample_sizes, l_values, p_norms) {
   for (n_samples in sample_sizes) {
     cat("Sample Size:", n_samples, "\n")
-    
-    # Simulate datasets
-    datasets <- simulate_datasets(n_samples, n_test_samples, dim)
-    
+    set.seed(123)
+    train_data <- matrix(runif(n_samples * dim), ncol = dim)
+    train_labels <- sample(c(0, 1), n_samples, replace = TRUE)
+    test_data <- matrix(runif(100 * dim), ncol = dim)  # Assuming n_test_samples is 100
+    test_labels <- sample(c(0, 1), 100, replace = TRUE)
     for (l in l_values) {
-      cat("Lower Dimension (l):", l, "\n")
-      
       for (p_norm in p_norms) {
-        cat("p-Norm:", p_norm, "\n")
-        
         for (k in k_values) {
-          cat("k:", k, "\n")
-          
-          # Measure the runtime and evaluate accuracy for modified kNN
           start_time_projected <- Sys.time()
-          accuracy_projected <- evaluate_accuracy_projected(datasets$train_data, datasets$train_labels, datasets$test_data, datasets$test_labels, k, l, p_norm)
-          cat("Modified kNN Accuracy:", accuracy_projected, "\n")
-          cat("Modified kNN Runtime:", round(difftime(Sys.time(), start_time_projected, units = "secs"), 2), "seconds\n\n")
+          accuracy_projected <- evaluate_accuracy_projected(train_data, train_labels, test_data, test_labels, k, l, p_norm)
+          runtime_projected <- round(difftime(Sys.time(), start_time_projected, units = "secs"), 2)
+          cat("l:", l, "p-norm:", p_norm, "k:", k, "Accuracy:", accuracy_projected, "Runtime:", runtime_projected, "seconds\n")
+          # Append the results to the dataframe
+          results <<- rbind(results, data.frame(n_samples = n_samples,
+                                                dim = dim,
+                                                l = l,
+                                                k = k,
+                                                p_norm = p_norm,
+                                                accuracy = accuracy_projected))
         }
       }
     }
   }
 }
-
+ 
 # Specify parameters
 sample_sizes <- c(100, 200, 300)
 dimensions <- c(10, 50, 1000)
-l_values <- c(2, 5)  # Adjust the lower dimension as needed
-p_norms <- c(1, 2)   # Different p-norms
-
-# Testing the modified kNN algorithm with random projection for different sample sizes, feature dimensions, lower dimensions, k-values, and p-norms
+k_values <- c(3, 5)
+l_values <- c(2, 5)
+p_norms <- c(1, 2)
+ 
+# Run the experiments
 for (dim in dimensions) {
   compare_knn_projected(dim, k_values, sample_sizes, l_values, p_norms)
 }
-
+ 
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "top", 
+      legend.title = element_blank(),
+      strip.text = element_text(size = 12, face = "bold"),
+      panel.spacing.x = unit(1, "lines"),  
+      panel.spacing.y = unit(1.5, "lines"),  
+      strip.placement = "outside"
+    )
+)
+ 
+# Plotting the results with improved facet labels and organization
+p <- ggplot(results, aes(x = factor(l), y = accuracy, fill = factor(p_norm))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(dim ~ n_samples + k, scales = "free_x", space = "free_x", labeller = label_both) +  
+  scale_fill_brewer(palette = "Set1", name = "p-Norm") +
+  labs(
+    title = "kNN Accuracy Across Different Dimension Values and p-Norms",
+    x = "Lower Dimension (l)",
+    y = "Accuracy",
+    caption = "Each row represents a dimension (p). Facet labels indicate sample size (n) and k value."
+  )
+ 
+# Print the plot
+print(p)
 ```
-Problem 2 Version 2:
-```{r}
-# Function to generate a random orthonormal matrix
-generate_random_orthonormal_matrix <- function(nrow, ncol) {
-  Q <- qr.Q(qr(matrix(rnorm(nrow * ncol), nrow = nrow)))
-  return(Q)
-}
 
-# Modified kNN algorithm with random projection
-knn_projected <- function(train_data, train_labels, test_data, k = 3, l = 5, p_norm = 2) {
-  # Generate a random orthonormal matrix U of dimension l x p
-  U <- generate_random_orthonormal_matrix(ncol(train_data), l)
-  
-  # Project the training and test data onto the lower-dimensional space
-  train_data_projected <- train_data %*% U
-  test_data_projected <- test_data %*% U
-  
-  # Classify an input feature vector x according to the k-nearest neighbors in the lower-dimensional space
-  knn_predict <- function(train_data, train_labels, test_point, k, p_norm) {
-    distances <- apply(train_data, 1, function(train_point) sum(abs(train_point - test_point)^p_norm)^(1/p_norm))
-    nearest_neighbors <- order(distances)[1:k]
-    nearest_labels <- train_labels[nearest_neighbors]
-    predicted_class <- as.numeric(names(sort(table(nearest_labels), decreasing = TRUE)[1]))
-    return(predicted_class)
-  }
-  
-  # Predict labels for test_data_projected
-  predictions <- apply(test_data_projected, 1, function(test_point) knn_predict(train_data_projected, train_labels, test_point, k, p_norm))
-  
-  return(predictions)
-}
 
-# Function to compare the performance of the modified kNN algorithm with different p-norms
-compare_knn_projected <- function(dim, k_values, sample_sizes, l_values, p_norms) {
-  for (n_samples in sample_sizes) {
-    cat("Sample Size:", n_samples, "\n")
-    
-    # Simulate datasets
-    datasets <- simulate_datasets(n_samples, n_test_samples, dim)
-    
-    for (l in l_values) {
-      cat("Lower Dimension (l):", l, "\n")
-      
-      for (p_norm in p_norms) {
-        cat("p-Norm:", p_norm, "\n")
-        
-        for (k in k_values) {
-          cat("k:", k, "\n")
-          
-          # Measure the runtime and evaluate accuracy for modified kNN
-          start_time_projected <- Sys.time()
-          accuracy_projected <- evaluate_accuracy_projected(datasets$train_data, datasets$train_labels, datasets$test_data, datasets$test_labels, k, l, p_norm)
-          cat("Modified kNN Accuracy:", accuracy_projected, "\n")
-          cat("Modified kNN Runtime:", round(difftime(Sys.time(), start_time_projected, units = "secs"), 2), "seconds\n\n")
-        }
-      }
-    }
-  }
-}
 
-# Testing the modified kNN algorithm with random projection for different sample sizes, feature dimensions, lower dimensions, k-values, and p-norms
-for (dim in dimensions) {
-  compare_knn_projected(dim, k_values, sample_sizes, l_values, p_norms)
-}
 
-```
 
