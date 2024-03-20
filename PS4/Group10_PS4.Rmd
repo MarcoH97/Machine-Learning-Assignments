@@ -1,0 +1,332 @@
+Created by: 
+Marco Hafid - 22-620-546
+Matus Kubla - 23-604-382
+
+
+In this problem set, we aim to implement the AdaBoost algorithm on stumps to perform email spam classification. The dataset used contains 4601 observations with 57 features and two class labels:
+
+1 - Spam (~40% of observations) 
+0 – Not spam (~60% of observations)
+
+The 57 features may be summarized as follows:
+- 48 measure specific word frequencies and 
+- 6 measure specific character frequencies in the email. 
+- 1 measures the average length of uninterrupted sequences of capital letters
+- 1 measures the length of the longest length of uninterrupted sequences of capital letters
+- 1 measures the total number of capital letters in the email
+
+The dataset is separated into a training and test sample based on an available indicator dataset (1 - testing sample | 0 - training sample)
+
+```{r}
+suppressWarnings({
+# Importing the libraries
+library(rpart)
+library(caret)
+library(kableExtra)
+library(ggplot2)
+library(knitr)
+})
+```
+DATA PREPARATION:
+
+We use the provided spam.data and spam.traintest datasets. 
+We read in both datasets and update the class labels from 0 to -1, to fit with our task.
+
+```{r}
+# Importing the data
+data <- read.table("spam.data", header = FALSE, sep = "", fill = TRUE)
+train <- read.table("spam.traintest", header = FALSE)
+
+# Combine the datasets
+data_full <- cbind(data, train)
+colnames(data_full)[ncol(data_full)] <- "indicator"
+
+# Convert class labels: 0 to -1 for spam classification
+data_full[, ncol(data_full)-1] <- ifelse(data_full[, ncol(data_full)-1] == 0, -1, 1)
+```
+
+While spam.data contains the whole dataset, we use the indicators in the spam.traintest file
+to separate the dataset into a training and testing sample. These are then further separated
+into features and outputs (the class we want to specify) for both.
+
+```{r}
+# Split the data based on the indicator
+test_sample <- subset(data_full, indicator == 1, select = -indicator)
+training_sample <- subset(data_full, indicator == 0, select = -indicator)
+
+# Prepare the data into test and training samples
+X_train <- training_sample[, -ncol(training_sample)]
+Y_train <- training_sample[, ncol(training_sample)]
+X_test <- test_sample[, -ncol(test_sample)]
+Y_test <- test_sample[, ncol(test_sample)]
+```
+
+GENERAL APPROACH: 
+
+To perform our analysis, we first define week learners – stumps – simple, one-depth decision trees with a single split. 
+
+For each step of the AdaBoost algorithm, we find a new, „best“ week learner (stump), which minimizes the weighted empirical risk. To do this, for each iteration of the algorithm, we iterate over all features, possible split points, and direction choices, to identify the stump that leads to the smallest error, (given by the sum of misclassified instances). 
+
+After selecting a new stump for an iteration, the AdaBoost algorithm will update the weights of the training instances in the following manner: 
+- misclassified instances have their weights increased
+- correctly classified stumps have their weights decreased
+This allows the algorithm to focus on those instances that were harder to classify previously, gradually „filling in the gaps“ and hence improving performance (and also assuring that the same stump is not selected in each iteration).
+
+Due to the nature of the classification task, we will later adapt our algorithm 
+in an attempt to specifically reduce the FPR (False Positive Rate). 
+More concretely, our motivation stems from the fact that in classifying spam emails,
+wrongfully designating an email as spam has considerably higher negative implications than failing to correctly identify a spam email. 
+
+More specifically, we implement a possibility to specify between a standard and FPR adapted approach in the AdaBoost function input. In the FPR adjusted version, we aim to put a stronger emphasis on minimizing FPR by increasing the weight of false positive mislassifications. This should push the model to address this issue in further iterations, and ideally, improve performance in this metric.
+
+```{r}
+# Define the Stump function
+stump <- function(X, Y, W) {
+  best_split <- NULL
+  best_feature <- NULL
+  best_error <- Inf
+  best_direction <- NULL
+  for(j in 1:ncol(X)) {
+    for(split in unique(X[, j])) {
+      for(direction in c(-1, 1)) {
+        prediction <- ifelse(X[, j] < split, direction, -direction)
+        error <- sum(W * (prediction != Y))
+        if(error < best_error) {
+          best_error <- error
+          best_split <- split
+          best_feature <- j
+          best_direction <- direction
+        }
+      }
+    }
+  }
+  list(split = best_split, feature = best_feature, direction = best_direction, error = best_error)
+}
+
+# Define the adaboost function
+adaBoost <- function(X, Y, M, apply_fpr_adjustment = FALSE, initial_model = NULL) {
+  n <- nrow(X)
+  # Use initial weights, classifiers, alpha values if an initial model is provided
+  W <- if (is.null(initial_model)) rep(1/n, n) else initial_model$W
+  classifiers <- if (is.null(initial_model)) list() else initial_model$classifiers
+  alpha <- if (is.null(initial_model)) numeric(M) else initial_model$alpha
+  feature_importance <- if (is.null(initial_model)) rep(0, ncol(X)) else initial_model$feature_importance
+  feature_count <- if (is.null(initial_model)) rep(0, ncol(X)) else initial_model$feature_count
+  start_m <- length(classifiers) + 1 # Determine the starting point based on the initial model
+  for(m in start_m:M) {
+    stump_result <- stump(X, Y, W)
+    prediction <- ifelse(X[, stump_result$feature] < stump_result$split, stump_result$direction, -stump_result$direction)
+    # Error calculation, potentially adjusted for FPR
+    err <- sum(W * (prediction != Y)) / sum(W)
+    if(apply_fpr_adjustment) {
+      # Identify false positives and adjust weights
+      is_false_positive <- (prediction == 1) & (Y == -1) # Assuming Y is -1 for negative class
+      # Increase weight for false positives
+      W[is_false_positive] <- W[is_false_positive] * 2
+      # Recalculate error after adjusting weights for false positives
+      err <- sum(W * (prediction != Y)) / sum(W)
+    }
+    alpha_m <- log((1 - err) / err) / 2
+    W <- W * exp(-alpha_m * prediction * Y)
+    W <- W / sum(W) # Normalize weights after adjustment
+    classifiers <- c(classifiers, list(list(split = stump_result$split, feature = stump_result$feature, direction = stump_result$direction, alpha = alpha_m)))
+    feature_importance[stump_result$feature] <- feature_importance[stump_result$feature] + alpha_m
+    feature_count[stump_result$feature] <- feature_count[stump_result$feature] + 1
+  }
+  list(W = W, classifiers = classifiers, alpha = alpha, feature_importance = feature_importance, feature_count = feature_count, predict = function(X) {
+    final_scores <- numeric(nrow(X))
+    for(classifier in classifiers) {
+      prediction <- ifelse(X[, classifier$feature] < classifier$split, classifier$direction, -classifier$direction)
+      final_scores <- final_scores + classifier$alpha * prediction
+    }
+    sign(final_scores)
+  })
+}
+```
+
+To implement our code more efficiently, we store the results of our models as we increase iteration steps (and hence the number of stumps used). 
+Instead of looping through all the possibilities with each new test, our algorithm is hence able to access the procedure of the preceding ones, picking up where the last one left off.
+
+For each of these models, we draw several performance metrics for later comparison, namely:
+
+- The Test Error: The proportion of incorrect predicitions made overall (= 1-accuracy)
+      Test Error = number of incorrect predictions / total number of predictions
+
+- Accuracy: Proportion of correct predictions made overall 
+      Accuracy = number of correct predictions / total number of predictions
+      
+- Precision: Proportion of true positive predictions in the total predicted positives
+      Precision = True positives / (True positives + False positives)
+      
+- Recall (sensitivity): Proportion of actual positives correctly identified by the model
+      Recall = True positives / (True positives + False negatives)
+
+- F1: Harmonic mean of precision and recall, balancing both concepts
+      F1 = 2 * (Precision* Recall) / (Precision + Recall)
+
+- False Positive Rate: Proportion of negative instances incorrectly classified as positive
+      FPR = False Positives / False Positives + True Negatives
+      
+
+```{r}
+# Define the runanalysis function
+runAnalysis <- function(X_train, Y_train, X_test, Y_test, M_values, apply_fpr_adjustment) {
+  metrics_list <- list()
+  models_list <- list() 
+  last_model <- NULL 
+  
+  # Ensure M_values is sorted to incrementally increase the number of stumps
+  M_values <- sort(unique(M_values))
+  
+  for (M in M_values) {
+    # If there is a last_model, use it as the starting point for further training
+    if (!is.null(last_model)) {
+      ada_model <- adaBoost(X_train, Y_train, M, apply_fpr_adjustment, last_model)
+    } else {
+      ada_model <- adaBoost(X_train, Y_train, M, apply_fpr_adjustment)
+    }
+    
+    # Update last_model with the newly trained model
+    last_model <- ada_model
+    
+    predictions <- ada_model$predict(X_test)
+    conf_matrix <- confusionMatrix(as.factor(predictions), as.factor(Y_test))
+    test_error <- mean(predictions != Y_test)
+    
+    metrics_list[[as.character(M)]] <- list(
+      M = M,
+      TestError = test_error,
+      Accuracy = conf_matrix$overall['Accuracy'],
+      Precision = conf_matrix$byClass['Precision'],
+      Recall = conf_matrix$byClass['Recall'],
+      F1 = conf_matrix$byClass['F1'],
+      FPR = conf_matrix$table[1,2] / (conf_matrix$table[1,2] + conf_matrix$table[1,1])
+    )
+    models_list[[as.character(M)]] <- ada_model
+  }
+  
+  metrics_df <- do.call(rbind, lapply(metrics_list, function(x) as.data.frame(t(unlist(x)), stringsAsFactors = FALSE)))
+  rownames(metrics_df) <- NULL
+  metrics_df <- data.frame(lapply(metrics_df, function(x) as.numeric(as.character(x))), stringsAsFactors = FALSE)
+  colnames(metrics_df) <- c("M", "TestError", "Accuracy", "Precision", "Recall", "F1", "FPR")
+  return(list(metrics_df = metrics_df, models_list = models_list))
+}
+```
+
+In our analysis, we compared the effects of varying number of iterations - the number of stumps used. We used values of 10, 25, 50, 100 iterations.
+(Note: 500 and 1000 iteration models were also ran, but ran too long for knitting purposes)
+Larger values would come with considerable computational requirements, as each iteration implies a lengthy optimization process, testing potentially tens to hundreds (if M = 1000) of thousands of possible stumps. 
+
+```{r}
+# Define a vector of different M values
+M_values <- c(1,5,10,25,50,100)
+
+# Run the analysis without FPR adjustment
+analysis_results_without_fpr <- runAnalysis(X_train, Y_train, X_test, Y_test, M_values, FALSE)
+
+# Run the analysis with FPR adjustment
+analysis_results_with_fpr <- runAnalysis(X_train, Y_train, X_test, Y_test, M_values, TRUE)
+```
+
+
+
+```{r}
+# Metrics and Plots for the analysis without FPR adjustment
+metrics_df_without_fpr <- analysis_results_without_fpr$metrics_df
+
+# Display metrics using knitr::kable for the analysis without FPR adjustment
+kable_output_without_fpr <- knitr::kable(metrics_df_without_fpr, format = "html", caption = "Performance Metrics without FPR Adjustment") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  kableExtra::column_spec(1, bold = TRUE, color = "white", background = "#0073C2") %>%
+  kableExtra::column_spec(2:7, background = "#E7E6E6")
+print(kable_output_without_fpr)
+
+# Repeat the process for the analysis with FPR adjustment
+metrics_df_with_fpr <- analysis_results_with_fpr$metrics_df
+
+# Display metrics using knitr::kable for the analysis with FPR adjustment
+kable_output_with_fpr <- knitr::kable(metrics_df_with_fpr, format = "html", caption = "Performance Metrics with FPR Adjustment") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  kableExtra::column_spec(1, bold = TRUE, color = "white", background = "#4CAF50") %>%
+  kableExtra::column_spec(2:7, background = "#E8F5E9")
+print(kable_output_with_fpr)
+```
+
+We summarize our results above. As can be clearly seen, there is a considerable difference between the results for both methods - standard, and artificially adjusted
+In the standard version, we primarily see a progressive improvement in performance across all metrics as M increases. This makes intuitive sense, as aggregating more week learners should, in theory, lead to stringer,more comprehensive decision-making ability, and hence better estimates. That said, an interesting observation happens between M = 5 and M = 10, with the former yielding better results, for which the reason remained unclear to us.
+Moreover, a potentially surprising result was that even a single stump, if chosen optimally, yielded an accuracy of almost 80%, which is considerable for so simple of a decision rule.
+
+
+ON the other hand, the FPR adjusted algorithm yielded a considerably worse performance, 
+and that across all values of M, as well as most metrics, including FPR, paradoxically.
+We also notice a stringer performance for M = 5, but, contrary to the standard case, performance worsens as M increases, landing at what seems a constant performance 
+as M reaches 50. 
+That said, the extra penalty for false positives has led the model to achieve 
+an extremely strong recall, reaching perfect recall with M = 50.
+This implies that the model successfully identified all spam, but likely came at the
+expense of stricter decision boundaries, making it more difficult to classify 
+emails as spam. 
+
+We continue our analysis of results through graphical visualizations.
+
+```{r}
+# Plot test errors as a bar graph without FPR adjustment
+barplot(metrics_df_without_fpr$TestError, names.arg = metrics_df_without_fpr$M, las = 2, col = 'blue',
+        main = "Test Error vs. Number of Stumps (Not adj.)", xlab = "Number of Stumps (M)",
+        ylab = "Test Error", ylim = c(0, max(metrics_df_without_fpr$TestError) + 0.05), cex.main = 1)
+
+# Plot test errors as a bar graph with FPR adjustment
+barplot(metrics_df_with_fpr$TestError, names.arg = metrics_df_with_fpr$M, las = 2, col = 'green',
+        main = "Test Error vs. Number of Stumps (FPR-Adj.)", xlab = "Number of Stumps (M)",
+        ylab = "Test Error", ylim = c(0, max(metrics_df_with_fpr$TestError) + 0.05), cex.main = 1)
+
+```
+
+The above graph plots the evolution of the test error - the proportion of incorrect classifications made overall - across increasing values of M. As previously discussed, we see a clear down trend for the standard AdaBoost algorithm as M increases, while the FPR adjusted one suffers the opposite fate as M grows larger than 5.
+
+
+In the following and final part, we provide a comprehensive overview of the feature importance and count throughout the two algorithms. Mainly, the code provides a graphical representation of both how much each of the features contribute to the model's accuracy, and how often a feature is chosen as the feature to be split on.
+
+```{r}
+# Define function to plot feature importance for a given M
+plot_feature_importance <- function(model, M, title_prefix) {
+  max_importance <- max(model$feature_importance)
+  barplot(model$feature_importance, 
+          names.arg = 1:length(model$feature_importance), 
+          las = 2, main = paste(title_prefix, "Feature Importance - M =", M), xlab = "Feature Index", 
+          ylab = "Importance", col = 'blue', cex.names = 0.5,
+          ylim = c(0, max_importance))
+}
+
+# Define function to plot feature count for a given M
+plot_feature_count <- function(model, M, title_prefix) {
+  max_count <- max(model$feature_count)
+  barplot(model$feature_count, names.arg = 1:length(model$feature_count), las = 2,
+          main = paste(title_prefix, "Feature Count - M =", M), xlab = "Feature Index", ylab = "Count",
+          col='lightblue', cex.names=0.5, ylim = c(0, max_count))
+}
+
+# Plotting for each specified M value
+for(M in M_values) {
+  plot_feature_importance(analysis_results_without_fpr$models_list[[as.character(M)]], M, "Not Adj.")
+  
+  plot_feature_count(analysis_results_without_fpr$models_list[[as.character(M)]], M, "Not Adj.")
+  
+  plot_feature_importance(analysis_results_with_fpr$models_list[[as.character(M)]], M, "FPR Adj.")
+  
+  plot_feature_count(analysis_results_with_fpr$models_list[[as.character(M)]], M, "FPR Adj.")
+}
+```
+This analysis shows a clear trend towards the later features, reflected both in high feature 
+importance, contributing significantly to the model's predictions, as well as count, indicating that the feature was used often to perform splits in the data for classification.
+More concretely, the standard model put great emphasis on the 52 and 53rd features, which represent the specific character frequencies in the email (potentially unusually characters, like $ or else). Similarly, a considerable role was also played by the final three parameters, representing the average length of uninterrupted sequences of capital letters,
+the length of the longest length of uninterrupted sequences of capital letters and the
+total number of capital letters in the email respectively. This also indicated a potential tendency for spam emails to contain capital letters, which is likely to be the case, and seems intuitively correct.
+ 
+For the adjusted version, we observe a similar count frequency, with a large emphasis on more or less the same final features, namely 52, 53, 55, 56 and 57. 
+Specifically, the model used the feature representing the average length of uninterrupted sequences of capital letters the most. 
+That said, the feature importance showed to be negative for this,indicating a potential reduction in performance, or noise creation when manually adjusting the algorithm for FPR minimization.
+ 
+Overall, as we don't have a more precise description of the features, namely the specific words and characters whose frequency is observed, our analysis in this regard remains limited by this.
+ 
+Finally, while the part hasn't been included in the final version due to computing time, the results of our analysis on 500 and 1000 iterations yielded additional information for the standard model. While 500 iterations marginally increased performance, the 1000 case showed traces of overfitting, as performance declined. The additional iterations led to no change in the FPR adjusted algorithm.
